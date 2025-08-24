@@ -1,4 +1,9 @@
     PAGE 0                          ; suppress page headings in ASW listing file
+
+;---------------------------------------------------------------------------------------------------------------------------------
+; Copyright 2025 Scott Baker
+;---------------------------------------------------------------------------------------------------------------------------------
+
 ;---------------------------------------------------------------------------------------------------------------------------------
 ; Copyright 2020 Jim Loos
 ;
@@ -19,7 +24,7 @@
 ; Firmware for the Intel 4004 Single Board Computer.
 ; Requires the use of a terminal emulator connected to the SBC
 ; set for 9600 bps, 8 data bits, no parity, 1 stop bit.
-; 9600 bps serial I/O functions 'putchar' and 'getchar' adapted from 
+; bitbang 9600 bps serial I/O functions 'putchar' and 'getchar' adapted from 
 ; Ryo Mukai's code at https://github.com/ryomuk/test4004
 ; Syntax is for the Macro Assembler AS V1.42 http://john.ccac.rwth-aachen.de:8000/as/
 ;----------------------------------------------------------------------------------------------------
@@ -46,7 +51,16 @@
                 nop                     ; "To avoid problems with power-on reset, the first instruction at
                                         ; program address 0000 should always be an NOP." (dont know why)
 
-pgmstart:       jun gobank0
+pgmstart:       
+                ; Jump to page mapper and load bank 0. The page mapper will configure the page map register
+                ; file and then jump to the label "bankstart". If you do not have the page mapping hardware
+                ; enabled, then everything prior to the jump to bankstart is pretty-much a no-op.
+                ; It'll all be fine.
+
+                jun gobank0
+
+                ; Next up is a standard set of include files that includes the page mapper (must be first!)
+                ; as well as input and output routines.
 
                 include "pagemap.inc"
                 include "printhex.inc"

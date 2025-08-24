@@ -1,5 +1,15 @@
     PAGE 0                          ; suppress page headings in ASW listing file
 
+;---------------------------------------------------------------------------------------------------------------------------------
+; Copyright 2025 Scott Baker
+;---------------------------------------------------------------------------------------------------------------------------------
+
+;---------------------------------------------------------------------------------------------------------------------------------
+; This firmware is loaded into bank1 and is a set of optional functions, like interfacing with my speech boards.
+;
+; The main firmware file (firmware.asm) is probably what you're looking for.
+;---------------------------------------------------------------------------------------------------------------------------------
+
             cpu 4040                    ; Tell the Macro Assembler AS that this source is for the Intel 4040.
 
                 include "bitfuncs.inc"  ; Include bit functions so that FIN can be loaded from a label (upper 4 bits of address are loped off).
@@ -14,7 +24,7 @@
                 nop                     ; "To avoid problems with power-on reset, the first instruction at
                                         ; program address 0000 should always be an NOP." (dont know why)
 
-pgmstart:       jun gobank0
+pgmstart:       jun gobank0             ; This line is never ever executed, because power-on start always happens in bank0.
 
                 include "pagemap.inc"
                 include "printhex.inc"
@@ -32,7 +42,6 @@ pgmstart:       jun gobank0
 
 bankstart:
 reset:          jms newline
-                ;jms banner              ; print "Intel 4004 SBC" or "Intel 4040 SBC"
 reset2:         jms ledsoff             ; all LEDs off
 reset3:         jms menu                ; print the menu
 reset4:         jms getchar             ; wait for a character from serial input, the character is returned in P1
