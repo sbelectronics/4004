@@ -1,0 +1,56 @@
+/* PLD for Scott's 4004 single board computer */
+
+Name bus;
+Partno G22V10#;
+Revision;
+Date 09/1/2023;
+Designer Scott Baker;
+Company ;
+Location ;
+Assembly 4004 CPU Board;
+Device G22V10;
+
+/* Inputs: */
+Pin 1 = !TTLRES;    /* reset in                             */
+Pin 2 = RA8;        /* address bit 8 from 4289              */
+Pin 3 = RA9;        /* address bit 9 from 4289              */
+Pin 4 = NC4;        /*                                      */
+Pin 5 = NC5;        /*                                      */
+Pin 6 = !WOUT0;     /* OUT from 4289                        */
+Pin 7 = !PM0;       /* PM from 4289                         */
+Pin 8 = !B_WR;      /* z0                                   */
+Pin 9 = !B_RD;      /* z1                                   */
+Pin 10 = B_NS;      /* z2                                   */
+Pin 11 = DB_WR;
+Pin 13 = DB_RD;
+
+/* Outputs:   */
+Pin 23 = !MAPEN;    /* memory map enable */ 
+Pin 22 = !MAPWRT;   /* memory map write */
+Pin 21 = !BLRD;     /* low rc2014 bus data read              */
+Pin 20 = !BLWR;     /* low rc2014 bus data write             */
+Pin 19 = !BHLDWR;   /* high rc2014 data bus load latch       */
+Pin 18 = !BHRD;     /* high rc2014 data bus read             */
+Pin 17 = !BRD;      /* rc2014 bus read strobe                */
+Pin 16 = !BWR;      /* rc2014 bus write strobe               */
+Pin 15 = NC15;      /*                                       */
+Pin 14 = NC14;      /*                                       */
+
+_W4289 = WOUT0 & !PM0;
+_MAPWRT = _W4289;
+
+MAPEN = !TTLRES & (MAPEN # (_MAPWRT & RA8 & RA9));   /* enable mapper on a write to 4th register */
+MAPWRT = _MAPWRT;
+
+_RD = DB_RD & (!DB_WR);
+_WR = DB_WR & (!DB_RD);
+
+_RDS = B_RD & (!B_WR);
+_WRS = B_WR & (!B_RD);
+
+BLRD = _RD & !B_NS;
+BLWR = _WR & !B_NS;
+BHRD = _RD & B_NS;
+BHLDWR = _WR & B_NS;
+BRD = _RDS & !B_NS;
+BWR = _WRS & !B_NS;
