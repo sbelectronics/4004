@@ -5,7 +5,7 @@ P2HEX=/usr/local/bin/p2hex
 BBDEFINES=-D serbb -D FAKE4201
 UARTDEFINES=-D seruart
 
-all: scott-bb.rom firmware-bb.bin bank1test-bb.bin
+all: scott-bb.rom scott-uart.rom
 
 scott-bb.rom: firmware-bb.bin firmware-bank1-bb.bin bank2test-bb.bin bank3test-bb.bin
 	dd if=/dev/zero of=scott-bb.rom bs=1 count=16384
@@ -31,7 +31,7 @@ firmware-bb.bin: firmware.asm
 
 firmware-bank1-bb.bin: firmware-bank1.asm
 	$(ASL) -cpu 4004 -L firmware-bank1.asm -o firmware-bank1-bb.p $(BBDEFINES)
-	$(P2BIN) firmware-bank1-b.p firmware-bank1-bb.bin	
+	$(P2BIN) firmware-bank1-bb.p firmware-bank1-bb.bin	
 
 bank1test-bb.bin: bank1test.asm
 	$(ASL) -cpu 4004 -L bank1test.asm -o bank1test-bb.p $(BBDEFINES)
