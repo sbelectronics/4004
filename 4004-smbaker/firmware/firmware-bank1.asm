@@ -53,19 +53,29 @@ testfor0:       fim P2,'0'
                 jun reset2              ; no menu item assigned to '0' yet
 
 testfor1:       fim P2,'1'
-                jms compare             ; is the character from the serial port '0'?
+                jms compare             ; is the character from the serial port '1'?
                 jcn nz,testfor2         ; jump if no match
                 jun sp0256mm_entry
 
 testfor2:       fim P2,'2'
-                jms compare             ; is the character from the serial port '0'?
+                jms compare             ; is the character from the serial port '2'?
                 jcn nz,testfor3         ; jump if no match
                 jun digimm_entry
 
 testfor3:       fim P2,'3'
-                jms compare             ; is the character from the serial port '0'?
-                jcn nz,testforA         ; jump if no match
+                jms compare             ; is the character from the serial port '3'?
+                jcn nz,testfor4         ; jump if no match
                 jun disptest
+
+testfor4:       fim P2,'4'
+                jms compare             ; is the character from the serial port '4'?
+                jcn nz,testfor5         ; jump if no match
+                jun fptest
+
+testfor5:       fim P2,'5'
+                jms compare             ; is the character from the serial port '5'?
+                jcn nz,testforA         ; jump if no match
+                jun fpswitchdemo
 
 testforA:       fim P2,'A'
                 jms compare
@@ -144,6 +154,8 @@ menutxt:        data CR,LF,LF
                 data "1 - SP0256A-AL2 Speech MM",CR,LF
                 data "2 - Digitalker Speech MM",CR,LF
                 data "3 - Display MM",CR,LF
+                data "4 - Frontpanel Display",CR,LF
+                data "5 - Frontpanel Keypad",CR,LF                
                 data "A - Go Bank 0",CR,LF
                 data "B - Go Bank 1",CR,LF
                 data "C - Go Bank 2",CR,LF
@@ -177,6 +189,128 @@ digimenutxt:    data CR,LF,LF
                 data "4 - Temperature",CR,LF
                 data "Q - Exit",CR,LF,LF
                 data "Your choice (1-9): ",0
+
+                org 0D00H               ;next page
+
+;-----------------------------------------------------------------------------------------
+; front panel display test
+;-----------------------------------------------------------------------------------------
+
+fptest:         ldm CMRAM3
+                dcl
+
+                fim p7, FP_LATB0        ; first 8 digits on
+                src p7
+                ldm 0FH
+                wr1
+                ldm 0FH                 ; ends up in last digit
+                wr0
+
+                fim p7, FP_LATDB1       ; last 2 digits on
+                src p7
+                ldm 03H                 ; ended up in D67 ??
+                wr1
+                ldm 00H
+                wr0
+
+                fim p7, FP_D01
+                src p7
+                ldm 08H
+                wr1
+                ldm 09H
+                wr0
+
+                fim p7, FP_D23
+                src p7
+                ldm 06H                 ; is in the right place
+                wr1
+                ldm 07H
+                wr0
+
+                fim p7, FP_D45
+                src p7
+                ldm 04H
+                wr1
+                ldm 05H
+                wr0
+
+                fim p7, FP_D67
+                src p7
+                ldm 02H
+                wr1
+                ldm 03H                 ; ends up in last 3 decimal points
+                wr0
+
+                fim p7, FP_D89
+                src p7
+                ldm 00H
+                wr1
+                ldm 01H
+                wr0
+
+                ldm CMRAM0
+                dcl
+                jun reset2
+
+;-----------------------------------------------------------------------------------------
+; check the front panel for a keypress
+; if key pressed, return with it in R1, and carry set
+;-----------------------------------------------------------------------------------------
+
+fp_getkey:  
+                ldm CMRAM3
+                dcl
+                fim p7, FP_KBD
+                src p7
+                rd0                     ; read low nibble
+                cma                     ; compliment switch bits
+                clc
+                rar                     ; rotate out the keydown bit
+                jcn cn, fp_nolkey
+
+                xch r1                  ; save keypress in r1
+                ldm CMRAM0
+                dcl                
+                stc
+                bbl 1
+
+fp_nolkey:      ldm CMRAM3
+                dcl
+                fim p7, FP_KBD
+                src p7
+                rd0                     ; re-read the low nibble, because serout may have changed our latch
+                rd1                     ; read high nibble
+                cma                     ; compliment switch bits
+                stc                     ; set the high bit, so it rotates in
+                rar                     ; rotate out the keydown bit
+                jcn cn, fp_nokey
+
+                xch r1                  ; save keypress in r1
+                ldm CMRAM0
+                dcl                
+                stc
+                bbl 1
+
+fp_nokey:       ldm CMRAM0
+                dcl
+                xch r1
+                clc
+                bbl 0
+
+;-----------------------------------------------------------------------------------------
+; front panel switch demo
+;-----------------------------------------------------------------------------------------                
+
+fpswitchdemo:   jms fp_getkey
+                jcn nc,fpswitchdemo     ; wait for key to be pressed
+                ld r1
+                xch r2                  ; save keypress in r2
+waitup:         jms fp_getkey
+                jcn c, waitup           ; wait for key to be released
+
+                ld r2
+                jms print1hex
+                jun fpswitchdemo
 
                 org 0E00H               ;next page     
 

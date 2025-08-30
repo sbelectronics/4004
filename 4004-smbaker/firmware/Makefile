@@ -14,11 +14,11 @@ scott-bb.rom: firmware-bb.bin firmware-bank1-bb.bin bank2test-bb.bin bank3test-b
 	dd if=bank2test-bb.bin of=scott-bb.rom bs=1 seek=8192 conv=notrunc
 	dd if=bank3test-bb.bin of=scott-bb.rom bs=1 seek=12288 conv=notrunc
 
-scott-uart.rom: firmware-uart.bin firmware-bank1-uart.bin bank2test-uart.bin bank3test-uart.bin
+scott-uart.rom: firmware-uart.bin firmware-bank1-uart.bin firmware-calc-uart.bin bank3test-uart.bin
 	dd if=/dev/zero of=scott-uart.rom bs=1 count=16384
 	dd if=firmware-uart.bin of=scott-uart.rom bs=1 seek=0 conv=notrunc
 	dd if=firmware-bank1-uart.bin of=scott-uart.rom bs=1 seek=4096 conv=notrunc
-	dd if=bank2test-uart.bin of=scott-uart.rom bs=1 seek=8192 conv=notrunc
+	dd if=firmware-calc-uart.bin of=scott-uart.rom bs=1 seek=8192 conv=notrunc
 	dd if=bank3test-uart.bin of=scott-uart.rom bs=1 seek=12288 conv=notrunc	
 
 firmware-jim.bin: firmware-jim.asm
@@ -52,6 +52,10 @@ firmware-uart.bin: firmware.asm
 firmware-bank1-uart.bin: firmware-bank1.asm
 	$(ASL) -cpu 4004 -L firmware-bank1.asm -o firmware-bank1-uart.p $(UARTDEFINES)
 	$(P2BIN) firmware-bank1-uart.p firmware-bank1-uart.bin
+
+firmware-calc-uart.bin: firmware-calc.asm
+	$(ASL) -cpu 4004 -L firmware-calc.asm -o firmware-calc-uart.p $(UARTDEFINES)
+	$(P2BIN) firmware-calc-uart.p firmware-calc-uart.bin
 
 bank1test-uart.bin: bank1test.asm
 	$(ASL) -cpu 4004 -L bank1test.asm -o bank1test-uart.p $(UARTDEFINES)
