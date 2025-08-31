@@ -1,15 +1,28 @@
     PAGE 0                          ; suppress page headings in ASW listing file
 
 ;---------------------------------------------------------------------------------------------------------------------------------
-; Copyright 2025 Scott Baker
+; Copyright 2025 Scott Baker, https://www.smbaker.com/
 ;---------------------------------------------------------------------------------------------------------------------------------
 
 ;---------------------------------------------------------------------------------------------------------------------------------
 ; This firmware is loaded into bank2 and implements a calculator using scott's "front panel" board
 ;
-; The front panel board implements 10 7-segment displays and a 16-button keypad.
+; The front panel board implements ten 7-segment displays and a 16-button keypad.
+; Keys are mapped as follows:
 ;
-; This firmware does not use the serial port -- all interaction is through the front panel.
+;    0 - 9 ... decimal digits
+;      A   ... divide
+;      B   ... multiply
+;      C   ... subtract
+;      D   ... plus
+;      E   ... equal
+;      F   ... clear
+;
+; This is strictly an integer calculator. Division will round to an integer. Only positive numbers
+; are supported. Negative numbers, overflow, division by zero, etc., may lead to undefined behavior.
+;
+; This firmware does not use the serial port, but will print a short message on serial to inform that
+; the calculator demo is running.  All interaction is through the front panel.
 ;---------------------------------------------------------------------------------------------------------------------------------
 
             cpu 4040                    ; Tell the Macro Assembler AS that this source is for the Intel 4040.
@@ -25,6 +38,13 @@ KEY_MINUS       equ 0CH
 KEY_PLUS        equ 0DH
 KEY_EQUAL       equ 0EH
 KEY_CLEAR       equ 0FH
+
+CALC_ACCUM      equ CHIP0REG0
+CALC_ARG        equ CHIP0REG1
+CALC_PROD       equ CHIP0REG2
+CALC_QUOTIENT   equ CHIP0REG2
+CALC_REMAINDER  equ CHIP0REG3
+CALC_TMP        equ CHIP1REG0           ; for saving R12,R13 during divide
 
                 ; register usage
                 ;   R12 - holds operation to perform
@@ -53,14 +73,14 @@ pgmstart:       jun gobank0             ; This line is never ever executed, beca
 
                 org 0100H
 
-bankstart:
+bankstart:      jms prncalcdemo
 reset:          ldm KEY_PLUS
                 xch R12                 ; set operation to PLUS
-                fim P2,accumulator      ; P2 points the memory register where the first number (and sum) digits are stored (10H-1FH)
+                fim P2,CALC_ACCUM       ; P2 points the memory register where the first number (and sum) digits are stored (10H-1FH)
                 jms clrram              ; clear RAM 10H-1FH
-                fim P2,addend           ; P2 points the memory register where the second number digits are stored (20H-2FH)
+                fim P2,CALC_ARG         ; P2 points the memory register where the second number digits are stored (20H-2FH)
                 jms clrram              ; clear RAM 20H-2FH
-                jms displayon
+                jms displayoff
                 jun kbd_accum
 
 ;-----------------------------------------------------------------------------------------
@@ -72,21 +92,23 @@ reset:          ldm KEY_PLUS
 
 ; xxx
 
-kbd_accum:      fim p2, accumulator     ; display the accumulator, until a key is pressed
+kbd_accum:      fim p2, CALC_ACCUM      ; display the accumulator, until a key is pressed
+                jms displayoff          ; turn off display while updating
                 jms display
-                jms setdispmask
+                jms setdispmask         ; turn on the apporpriate digits
 kbdloop0:       jms fp_getkey
                 jcn cn, kbdloop0        ; repeat until a key is pressed
                 ld r1
-                xch r13                  ; store it in r13
+                xch r13                 ; store it in r13
 kbdloop1:       jms fp_getkey
                 jcn c, kbdloop1         ; repeat until a key is released                
                 jun kbdgotkey           ; process the key and enter the accumulator loop
 ; xxx
 
-kbd_addend:     fim p2, addend
+kbd_addend:     fim p2, CALC_ARG
+                jms displayoff          ; turn off display while updating
                 jms display
-                jms setdispmask
+                jms setdispmask         ; turn on the apporpriate digits
 kbdloop2:       jms fp_getkey
                 jcn cn, kbdloop2        ; repeat until a key is pressed
                 ld r1
@@ -100,8 +122,18 @@ kbdgotkey:
                 sub r13
                 jcn cn, kbd_op          ; if r13 >= 10, then it's an operation, not a number
 
-shiftdig:       fim P3, addend          ; only the MSB matters here
-                fim P4, addend
+                ldm KEY_EQUAL           ; Was the last operation EQUAL ?
+                clc                     ; ... If so, then they pushed EQUAL and started typing
+                sub r12                 ; ... a number, which is a new operation.
+                jcn nz, notequal
+                ldm KEY_PLUS            ; Mark the last op as a plus
+                xch r12
+                fim p2, CALC_ACCUM      ; ... and clear the accumulator
+                jms clrram
+notequal:
+
+shiftdig:       fim P3, CALC_ARG        ; only the MSB matters here
+                fim P4, CALC_ARG
                 ldm 08H
                 xch R7                  ; make the least significant digit of source address in P3 0EH
                 ldm 09H
@@ -128,12 +160,15 @@ shiftdiglp:     src P3                  ; use address in P3 for RAM reads
 
 ; save the new digit (in R13) from the keypad
                 ld R13                  ; R13 holds least significant nibble of the character received from the keypad
-                fim P2, addend
+                fim P2, CALC_ARG
                 src P2                  ; P2 now points to the destiation for the character
                 wrm                     ; save the least significant nibble of the new digit (the binary value for the number) in RAM
                 jun kbd_addend
 
-kbd_op:         ldm KEY_CLEAR
+kbd_op:
+;                fim p1, "O"
+;                jms showregs
+                ldm KEY_CLEAR
                 clc
                 sub r13                 ; clear checks the current character
                 jcn zn, kbd_ck_plus
@@ -143,36 +178,94 @@ kbd_ck_plus:    ldm KEY_PLUS
                 clc
                 sub r12
                 jcn zn, kbd_ck_sub
-kbd_op_plus:    fim p1, accumulator     ; setup
-                fim p2, addend          ; ... and perform
+kbd_op_plus:    fim p1, CALC_ACCUM      ; setup
+                fim p2, CALC_ARG        ; ... and perform
                 jms addition            ; ... addition
                 jun kbd_op_out
 
 kbd_ck_sub:     ldm KEY_MINUS
                 clc
                 sub r12
-                jcn zn, kbd_ck_equal
-                fim p1, accumulator     ; setup
-                fim p2, addend          ; ... and perform
+                jcn zn, kbd_ck_mult
+                fim p1, CALC_ACCUM      ; setup
+                fim p2, CALC_ARG        ; ... and perform
                 jms subtract            ; ... subtraction
+                jun kbd_op_out
+
+kbd_ck_mult:    ldm KEY_TIMES
+                clc
+                sub r12
+                jcn zn, kbd_ck_div
+                fim p3, CALC_ACCUM+07H
+                fim p4, CALC_ACCUM+0CH
+                jms shift8
+                fim p3, CALC_ARG+07H
+                fim p4, CALC_ARG+0BH
+                jms shift8
+                fim p1, CALC_ACCUM      ; setup
+                fim p2, CALC_ARG        ; ... and perform
+                fim p3, CALC_PROD
+                ldm 0
+                src p1                  ; these flags seem to be inputs to MLRT                   
+                wr0                     ; ... in ways that I don't understand
+                wr1                     ; ... so make sure they are zero
+                src p2
+                wr0
+                wr1
+                jms MLRT                ; ... multiplication
+                fim p1, CALC_PROD
+                fim p2, CALC_ACCUM
+                jms copyram
+;                fim p1, "M"
+;                jms showregs
+                jun kbd_op_out
+
+kbd_ck_div:     ldm KEY_DIV
+                clc
+                sub r12
+                jcn zn, kbd_ck_equal
+
+                jms save_r12r13
+
+                fim p1, CALC_ACCUM      ; setup
+                fim p2, CALC_REMAINDER  ; ... and perform
+                fim p3, CALC_ARG        
+                fim p4, CALC_QUOTIENT
+                ldm 0                 
+                src p1                  ; these flags seem to be unputs to DVRT
+                wr0                     ; ... in ways that I don't understand
+                wr1                     ; ... so make sure they are zero
+                src p3
+                wr0
+                wr1
+                jms DVRT                ; ... division
+                jms shiftquot           ; Move the whole part of quotient and zap remainder
+                fim p1, CALC_QUOTIENT
+                fim p2, CALC_ACCUM
+                jms copyram
+;                fim p1, "D"
+;                jms showregs
+
+                jms restore_r12r13
+
                 jun kbd_op_out
 
 kbd_ck_equal:   ldm KEY_EQUAL           ; FIXME FIXME FIXME
                 clc
                 sub r12
                 jcn zn, kbd_op_out
-                fim p2, accumulator     ; clear the accumulator
-                jms clrram              ; ...  since equal terminated the last op
-                jun kbd_op_plus         ; then add the addend to the accumulator
 
+;                fim p2, CALC_ACCUM      ; clear the accumulator
+;                jms clrram              ; ...  since equal terminated the last op
+;                jun kbd_op_plus         ; then add the addend to the accumulator
 
 kbd_op_out:     ld r13                  ; get keypress
                 xch r12                 ; store in next operation
-                fim p2, addend          ; clear the addend for next operation
+                fim p2, CALC_ARG        ; clear the addend for next operation
                 jms clrram                
                 jun kbd_accum
 
-                org 0B00H
+                org 0A00H
 
 ;-------------------------------------------------------------------------------
 ; this is the function that performs the multi-digit decimal addition
@@ -230,7 +323,7 @@ subtract1:      tcs                     ; accumulator = 9 or 10
                 bbl 1                   ; overflow, the difference is negative
 subtract2:      bbl 0                   ; no overflow, the difference is positive
 
-                org 0C00H
+                org 0B00H
 
 ;-------------------------------------------------------------------------------
 ; Multi-digit multiplication function taken from:
@@ -388,7 +481,7 @@ TENS            ldm 0
                 wr0
                 bbl 0
 
-                org 0D00H
+                org 0C00H
 
 ;-------------------------------------------------------------------------------
 ; Multi-digit division routine taken from:
@@ -469,7 +562,7 @@ DV2             src P4
                 jms CPLRT
 ATLAST          bbl 0
 
-                org 0E00H
+                org 0D00H
 
 ;--------------------------------------------------------------------------------------------------                
 ; DECIMAL DIVISION ROUTINE
@@ -662,7 +755,7 @@ FILLZ           src P5
 PSTFIL          bbl 0
 DOVRFL          bbl 1
 
-                org 0F00H
+                org 0E00H
 
 ;-----------------------------------------------------------------------------------------
 ; display all 10 digits, using address in p2
@@ -791,8 +884,7 @@ sdmnocarry2:    xch R1
                 bbl 0
 
 hdispmask:      data   0,   0,   0,   0,   0,   0,   0,   0,    0,  10H,  30H
-ldispmask:      data 01H, 01H, 03H, 07H, 0FH, 1FH, 3FH, 7FH, 0FFH, 0FFH, 0FFH       
-
+ldispmask:      data 01H, 01H, 03H, 07H, 0FH, 1FH, 3FH, 7FH, 0FFH, 0FFH, 0FFH   
 
 ;-----------------------------------------------------------------------------------------
 ; display the two digits in P0 to the display in P1
@@ -820,7 +912,6 @@ displayon:      ldm CMRAM3
                 src p7
                 ldm 0FH
                 wr1
-                ldm 0FH                 ; ends up in last digit
                 wr0
 
                 fim p7, FP_LATDB1       ; last 2 digits on
@@ -829,6 +920,33 @@ displayon:      ldm CMRAM3
                 wr1
                 ldm 00H
                 wr0
+
+                ldm CMRAM0
+                dcl
+                bbl 0
+
+;-----------------------------------------------------------------------------------------
+; turn off all display digits
+;-----------------------------------------------------------------------------------------                
+
+displayoff:     ldm CMRAM3
+                dcl
+
+                fim p7, FP_LATB0        ; first 8 digits on
+                src p7
+                ldm 00H
+                wr1
+                wr0
+
+                fim p7, FP_LATDB1       ; last 2 digits on
+                src p7
+                ldm 00H                 ; ended up in D67 ??
+                wr1
+                wr0
+
+                ldm CMRAM0
+                dcl                
+                bbl 0              
 
 ;-----------------------------------------------------------------------------------------
 ; check the front panel for a keypress
@@ -874,6 +992,8 @@ fp_nokey:       ldm CMRAM0
                 clc
                 bbl 0
 
+                org 0F00H
+
 ;-------------------------------------------------------------------------------
 ; clear RAM register pointed to by P2.
 ;-------------------------------------------------------------------------------
@@ -887,6 +1007,166 @@ clrram1:        src P2
                 wr3
                 bbl 0
 
+;-------------------------------------------------------------------------------
+; clear RAM register from P1 to P2
+;-------------------------------------------------------------------------------
+copyram:
+copyram1:       src P1
+                rdm                     ; read from P1
+                src p2
+                wrm                     ; write to P2
+                inc R3                  ; increment P1
+                isz R5,copyram1         ; 16 times (copy all 16 characters)
+                rd0
+                wr0
+                rd1
+                wr1
+                rd2
+                wr2
+                rd3
+                wr3
                 bbl 0
+
+;-------------------------------------------------------------------------------
+; shift 8 bytes of data from P3 to P4, works backwards
+; destroys:
+;    R1
+;-------------------------------------------------------------------------------                
+
+shift8:         ldm (16-9)
+                xch R1                  ; loop counter (9 times thru the loop)
+                            
+shift8lp:       src P3                  ; use address in P3 for RAM reads
+                rdm                     ; read digit from source
+                src P4                  ; use address in P4 for RAM writes
+                wrm                     ; write digit to destination
+                ld  R9
+                dac                     ; decrement least significant nibble of destination address
+                xch R9
+                ld  R7
+                dac                     ; decrement least significant nibble of source address
+                xch R7
+                isz R1,shift8lp         ; do all digits
+                bbl 0
+
+;-------------------------------------------------------------------------------
+
+shiftquot:      fim P3, CALC_QUOTIENT
+                fim P4, CALC_QUOTIENT
+                ldm 9
+                xch R7                  ; P3 starts at address 9
+shiftquotlp:    src P3
+                rdm
+                src P4
+                wrm
+                inc R9
+                isz R7, shiftquotlp     ; increment R9, until it wraps to 0
+
+                ldm 0
+                fim P4, CALC_QUOTIENT+7
+zapremlp:       src P4
+                wrm
+                isz R9, zapremlp        ; increment R9, until it wraps to 0
+                bbl 0
+
+;-------------------------------------------------------------------------------
+; saves R12 and R13
+; destorys: P7 (r14,r15)
+;-------------------------------------------------------------------------------                       
+
+save_r12r13:    fim p7, CALC_TMP       ; save R12 and R13
+                src p7
+                ld r12
+                wr0
+                ld r13
+                wr1
+                bbl 0
+
+;-------------------------------------------------------------------------------
+; restores R12 and R13
+; destorys: P7 (r14,r15)
+;-------------------------------------------------------------------------------                     
+
+restore_r12r13: fim p7, CALC_TMP      ; restore R12 and R13
+                src p7
+                rd0
+                xch r12
+                rd1
+                xch r13
+                bbl 0
+
+;-------------------------------------------------------------------------------
+; Print the contents of RAM register pointed to by P3 as a 16 digit decimal number. R11
+; serves as a leading zero flag (1 means skip leading zeros). The digits are stored
+; in RAM from right to left i.e. the most significant digit is at location 0FH,
+; therefore it's the first digit printed. The least significant digit is at location
+; 00H, so it's the last digit printed.
+;-------------------------------------------------------------------------------
+prndigits:      ldm 16-16
+                xch R10                 ; R10 is the loop counter (0 gives 16 times thru the loop for all 16 digits)
+                ldm 0FH
+                xch R7                  ; make P3 0FH (point to the most significant digit)
+                ldm 1
+                xch R11                 ; set the leading zero flag ('1' means do not print digit)
+prndigits1:     ld R7
+                jcn zn,prndigits2       ; jump if this is not the last digit
+                ldm 0
+                xch R11                 ; since this is the last digit, clear the leading zero flag
+prndigits2:     ld R11                  ; get the leading zero flag
+                rar                     ; rotate the flag into carry
+                src P3                  ; use P3 address for RAM reads
+                rdm                     ; read the digit to be printed from RAM
+                jcn zn,prndigits3       ; jump if this digit is not zero
+                jcn c,prndigits4        ; this digit is zero, jump if the leading zero flag is set
+                
+prndigits3:     xch R3                  ; this digit is not zero OR the leading zero flag is not set. put the digit as least significant nibble into R3
+                ldm 3
+                xch R2                  ; most significant nibble ("3" for ASCII characters 30H-39H)
+                jms putchar             ; print the ASCII code for the digit
+                ldm 0
+                xch R11                 ; reset the leading zero flag
+prndigits4:     ld  R7                  ; least significant nibble of the pointer to the digit
+                dac                     ; decrement to point to the next digit
+                xch R7
+                isz R10,prndigits1      ; loop 16 times (print all 16 digits)
+                bbl 0                   ; finished with all 16 digits
+
+;-----------------------------------------------------------------------------------------
+; position the cursor to the start of the next line
+;-----------------------------------------------------------------------------------------
+newline:        fim P1,CR
+                jms putchar
+                fim P1,LF
+                jun putchar
+
+showregs:       jms putchar             ; assume a character is in P1 to designate the message
+                fim P0,lo(acctext)
+                fin P1                  ; fetch the character pointed to by P0 into P1
+                jms txtout              ; print the character, increment the pointer to the next character
+                jcn zn,$-3              ; go back for the next character
+
+                fim p3, CALC_ACCUM
+                jms prndigits
+
+                fim P0,lo(argtext)
+                fin P1                  ; fetch the character pointed to by P0 into P1
+                jms txtout              ; print the character, increment the pointer to the next character
+                jcn zn,$-3              ; go back for the next character
+
+                fim p3, CALC_ARG
+                jms prndigits
+                jms newline
+                bbl 0
+
+prncalcdemo:    fim P0,lo(calcdemotext)
+                fin P1                  ; fetch the character pointed to by P0 into P1
+                jms txtout              ; print the character, increment the pointer to the next character
+                jcn zn,$-3              ; go back for the next character
+                bbl 0
+
+acctext:        data CR, LF, "accum: ",0
+argtext:        data CR, LF, "arg: ",0
+calcdemotext:   data CR, LF, "Calculator Demo - Uses Keypad", CR, LF, 0
+
 
                 end
