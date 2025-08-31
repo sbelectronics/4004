@@ -73,24 +73,22 @@ pgmstart:       jun gobank0             ; This line is never ever executed, beca
 
                 org 0100H
 
-bankstart:      jms prncalcdemo
-reset:          ldm KEY_PLUS
-                xch R12                 ; set operation to PLUS
+bankstart:      jms prncalcdemo         ; print banner
+reset:          ldm KEY_PLUS            ; pre-load PLUS as the current operation
+                xch R12                 ; ... that way when we type our first number, it will get added to the accumulator
                 fim P2,CALC_ACCUM       ; P2 points the memory register where the first number (and sum) digits are stored (10H-1FH)
                 jms clrram              ; clear RAM 10H-1FH
                 fim P2,CALC_ARG         ; P2 points the memory register where the second number digits are stored (20H-2FH)
                 jms clrram              ; clear RAM 20H-2FH
-                jms displayoff
+                jms displayoff          ; all display digits off
                 jun kbd_accum
 
 ;-----------------------------------------------------------------------------------------
 ; keypad processor
 ;-----------------------------------------------------------------------------------------
 
-; idea - on start preload operation with +. That way when we start typing numbers, it will
-; add them to the add them to the accumulator (which starts at zero)
-
-; xxx
+; kbd_accum is the entry point where we display the accumulator. If you press any key,
+; then we will move to kbd_addend which is the loop where we display the argument
 
 kbd_accum:      fim p2, CALC_ACCUM      ; display the accumulator, until a key is pressed
                 jms displayoff          ; turn off display while updating
@@ -99,11 +97,15 @@ kbd_accum:      fim p2, CALC_ACCUM      ; display the accumulator, until a key i
 kbdloop0:       jms fp_getkey
                 jcn cn, kbdloop0        ; repeat until a key is pressed
                 ld r1
-                xch r13                 ; store it in r13
+                xch r13                 ; store the incoming key in r13
 kbdloop1:       jms fp_getkey
                 jcn c, kbdloop1         ; repeat until a key is released                
                 jun kbdgotkey           ; process the key and enter the accumulator loop
-; xxx
+
+; kbd_addend is where we display the argument to the operation. For example, with
+; addition, we are performing "accumulator = accumulator + addend". Here is where
+; the user types in the right-hand argument to the "+" operation. It's the same for
+; the other three operations -- though I still call it "addend" in the code.
 
 kbd_addend:     fim p2, CALC_ARG
                 jms displayoff          ; turn off display while updating
@@ -112,11 +114,11 @@ kbd_addend:     fim p2, CALC_ARG
 kbdloop2:       jms fp_getkey
                 jcn cn, kbdloop2        ; repeat until a key is pressed
                 ld r1
-                xch r13                 ; store it in r13
+                xch r13                 ; store the incoming key in r13
 kbdloop3:       jms fp_getkey
                 jcn c, kbdloop3         ; repeat until a key is released
 
-kbdgotkey:
+kbdgotkey:                              ; we have a key... from our own loop, or from kbd_accum's loop.
                 ldm 09H
                 clc
                 sub r13
@@ -165,18 +167,22 @@ shiftdiglp:     src P3                  ; use address in P3 for RAM reads
                 wrm                     ; save the least significant nibble of the new digit (the binary value for the number) in RAM
                 jun kbd_addend
 
+; kbd_op. This is where we handle operations. R13 has the key, which is greater than or equal to 0x0A. R13 is effectively
+; the "next" operation. Because this is an "infix" calculator, when the user presses a key like "+", we don't have the right hand
+; argument yet, because the user hasn't typed it. So we're always executing the previous operation, which is in R12.
+
 kbd_op:
-;                fim p1, "O"
+;                fim p1, "O"            ; debugging
 ;                jms showregs
-                ldm KEY_CLEAR
-                clc
-                sub r13                 ; clear checks the current character
+                ldm KEY_CLEAR           ; clear is the only operation that works on the current keypress, because it
+                clc                     ; terminates any operation in progress. Therefore we check R13, not R12.
+                sub r13
                 jcn zn, kbd_ck_plus
-                jun reset
+                jun reset               ; if clear was pressed, reset the program
 
 kbd_ck_plus:    ldm KEY_PLUS
                 clc
-                sub r12
+                sub r12                 ; R12 is the prior ("infix") operation.
                 jcn zn, kbd_ck_sub
 kbd_op_plus:    fim p1, CALC_ACCUM      ; setup
                 fim p2, CALC_ARG        ; ... and perform
@@ -196,10 +202,10 @@ kbd_ck_mult:    ldm KEY_TIMES
                 clc
                 sub r12
                 jcn zn, kbd_ck_div
-                fim p3, CALC_ACCUM+07H
-                fim p4, CALC_ACCUM+0CH
+                fim p3, CALC_ACCUM+07H  ; peculiarities of the multiply code. The left-hand argument to multiply
+                fim p4, CALC_ACCUM+0CH  ; starts at offset 5. We copy backwards, from the tail in.
                 jms shift8
-                fim p3, CALC_ARG+07H
+                fim p3, CALC_ARG+07H    ; and the right-hand argument starts at offset 4.
                 fim p4, CALC_ARG+0BH
                 jms shift8
                 fim p1, CALC_ACCUM      ; setup
@@ -215,7 +221,7 @@ kbd_ck_mult:    ldm KEY_TIMES
                 jms MLRT                ; ... multiplication
                 fim p1, CALC_PROD
                 fim p2, CALC_ACCUM
-                jms copyram
+                jms copyram             ; copy the result from CALC_PROD into CALC_ACCUM
 ;                fim p1, "M"
 ;                jms showregs
                 jun kbd_op_out
@@ -225,7 +231,7 @@ kbd_ck_div:     ldm KEY_DIV
                 sub r12
                 jcn zn, kbd_ck_equal
 
-                jms save_r12r13
+                jms save_r12r13         ; divide uses all the registers, so we must save R12 and R13 to RAM.
 
                 fim p1, CALC_ACCUM      ; setup
                 fim p2, CALC_REMAINDER  ; ... and perform
@@ -242,7 +248,7 @@ kbd_ck_div:     ldm KEY_DIV
                 jms shiftquot           ; Move the whole part of quotient and zap remainder
                 fim p1, CALC_QUOTIENT
                 fim p2, CALC_ACCUM
-                jms copyram
+                jms copyram             ; copy result from CALC_QUOTIENT to CALC_ACCUM
 ;                fim p1, "D"
 ;                jms showregs
 
@@ -250,20 +256,23 @@ kbd_ck_div:     ldm KEY_DIV
 
                 jun kbd_op_out
 
-kbd_ck_equal:   ldm KEY_EQUAL           ; FIXME FIXME FIXME
+kbd_ck_equal:   ldm KEY_EQUAL
                 clc
                 sub r12
                 jcn zn, kbd_op_out
 
-;                fim p2, CALC_ACCUM      ; clear the accumulator
-;                jms clrram              ; ...  since equal terminated the last op
-;                jun kbd_op_plus         ; then add the addend to the accumulator
+                ; Equal is a do-nothing operation. We just go back to printing the
+                ; accumulator. There is some special handling int he kbd processing loop
+                ; to handle the case where the user starts typing a new number.
 
-kbd_op_out:     ld r13                  ; get keypress
-                xch r12                 ; store in next operation
+                jun kbd_op_out
+
+
+kbd_op_out:     ld r13                  ; get current keypress keypress
+                xch r12                 ; store it in R12 for the next operation
                 fim p2, CALC_ARG        ; clear the addend for next operation
                 jms clrram                
-                jun kbd_accum
+                jun kbd_accum           ; go back to printing the accumulator
 
                 org 0A00H
 
@@ -1050,6 +1059,9 @@ shift8lp:       src P3                  ; use address in P3 for RAM reads
                 bbl 0
 
 ;-------------------------------------------------------------------------------
+; deal with divide. The quotient is a real number with an implied decimal point.
+; we only want the integer part of it, which runs from offset 9 to offset 15.
+;-------------------------------------------------------------------------------
 
 shiftquot:      fim P3, CALC_QUOTIENT
                 fim P4, CALC_QUOTIENT
@@ -1167,6 +1179,5 @@ prncalcdemo:    fim P0,lo(calcdemotext)
 acctext:        data CR, LF, "accum: ",0
 argtext:        data CR, LF, "arg: ",0
 calcdemotext:   data CR, LF, "Calculator Demo - Uses Keypad", CR, LF, 0
-
 
                 end
