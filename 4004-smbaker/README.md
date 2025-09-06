@@ -75,3 +75,25 @@ DCL
 ```
 
 Examples of this are preset in uartser.inc, as well as in the 8-bit multimodule code in firmware-bank1.asm
+
+## power requirements
+
+Specified in milliamps (ma)
+
+* 4004 ... 30-40
+
+* 4040 ... 40-60
+
+* 4201 ... 20
+
+* 4265 ... 35
+
+* 4289 ... 30-40
+
+* 4002 ... 17-33
+
+Ramless board: 155ma
+
+Minimal board with 2 4002: 221ma
+
+Maximal board with 6 4002: 353ma
