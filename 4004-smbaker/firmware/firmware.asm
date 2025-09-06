@@ -2,6 +2,12 @@
 
 ;---------------------------------------------------------------------------------------------------------------------------------
 ; Copyright 2025 Scott Baker
+;
+; Modified for Scott's 4004 single board computer.
+;
+; Supports memory mapper and 4 banks of ROM, allowing four different images to be used. By default always boots bank 0. If you
+; have Scott's Front Panel board installed, and you hold down the "B", "C", or "D" keys, then it will automatically boot a
+; specific bank. This can be useful for doing the calculator demo, which is entirely frontpanel-based.
 ;---------------------------------------------------------------------------------------------------------------------------------
 
 ;---------------------------------------------------------------------------------------------------------------------------------
