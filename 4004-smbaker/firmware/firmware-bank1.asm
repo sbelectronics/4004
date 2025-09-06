@@ -253,49 +253,13 @@ fptest:         ldm CMRAM3
                 jun reset2
 
 ;-----------------------------------------------------------------------------------------
+; fp_getkey:
+;
 ; check the front panel for a keypress
 ; if key pressed, return with it in R1, and carry set
 ;-----------------------------------------------------------------------------------------
 
-fp_getkey:  
-                ldm CMRAM3
-                dcl
-                fim p7, FP_KBD
-                src p7
-                rd0                     ; read low nibble
-                cma                     ; compliment switch bits
-                clc
-                rar                     ; rotate out the keydown bit
-                jcn cn, fp_nolkey
-
-                xch r1                  ; save keypress in r1
-                ldm CMRAM0
-                dcl                
-                stc
-                bbl 1
-
-fp_nolkey:      ldm CMRAM3
-                dcl
-                fim p7, FP_KBD
-                src p7
-                rd0                     ; re-read the low nibble, because serout may have changed our latch
-                rd1                     ; read high nibble
-                cma                     ; compliment switch bits
-                stc                     ; set the high bit, so it rotates in
-                rar                     ; rotate out the keydown bit
-                jcn cn, fp_nokey
-
-                xch r1                  ; save keypress in r1
-                ldm CMRAM0
-                dcl                
-                stc
-                bbl 1
-
-fp_nokey:       ldm CMRAM0
-                dcl
-                xch r1
-                clc
-                bbl 0
+                include "fp_getkey.inc"
 
 ;-----------------------------------------------------------------------------------------
 ; front panel switch demo

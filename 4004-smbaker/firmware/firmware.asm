@@ -79,6 +79,8 @@ pgmstart:
 bankstart:
 reset:          jms post
 
+                ; Initialize 4265
+
                 ldm CMRAM3
                 dcl                     ; select RAM3
                 fim P0,GPIO             ; address of the 4265 GPIO device
@@ -88,14 +90,22 @@ reset:          jms post
                 ldm CMRAM0
                 dcl                     ; back to RAM0
 
+                ; Initialize serial
+
                 jms serinit
 
                 ifdef SERBB
                 jms halfsecond          ; 500 millisecond delay. SMBAKER: why? some delay for bit-bang serial?
                 endif
 
+                ; Check to see if someone is holding down a key on the front panel
+
+                jms check_auto
+
+                ; Banner and menu
+
                 jms newline
-                jms banner              ; print "Intel 4004 SBC" or "Intel 4040 SBC"        
+                jms banner              ; print "Intel 4004 SBC" or "Intel 4040 SBC"
 reset2:         jms ledsoff             ; all LEDs off
 reset3:         jms menu                ; print the menu
 reset4:         jms getchar             ; wait for a character from serial input, the character is returned in P1
@@ -241,22 +251,6 @@ lesser:         bbl 1                   ; 1 indicates P1<P3
 greater:        bbl 2                   ; 2 indicates P1>P3
 
 ;--------------------------------------------------------------------------------------------------
-; postdelay is like leddelay but without the serial port check
-; ... and I made it shorter, too
-;--------------------------------------------------------------------------------------------------
-
-postdelay:      ldm 15-5                ; 5 times through the outer loop
-                xch R13                 ; counter for the outer loop
-postdelay1:     ldm 15-10               ; 10 times through the inner loop
-                xch R12                 ; counter for the inner loop
-postdelay2:     fim P7,07DH
-postdelay3:     isz R14,postdelay3       ; inner loop 1 millisecond delay
-                isz R15,postdelay3       ;
-                isz R12,postdelay2       ; inner loop executed 10 times (10 milliseconds)
-                isz R13,postdelay1       ; outer loop executed 10 times (100 milliseconds)
-                bbl 0      
-
-;--------------------------------------------------------------------------------------------------
 ; detects 4004 or 4040 CPU by using the "AN7" instruction.
 ; available on the 4040 but not on the 4004.
 ; returns 1 for 4004 CPU. returns 0 for 4040 CPU.
@@ -313,6 +307,54 @@ post:           fim P0,LEDPORT
                 ldm 0000B
                 wmp
                 bbl 0
+
+;--------------------------------------------------------------------------------------------------
+; postdelay is like leddelay but without the serial port check
+; ... and I made it shorter, too
+;--------------------------------------------------------------------------------------------------
+
+postdelay:      ldm 15-5                ; 5 times through the outer loop
+                xch R13                 ; counter for the outer loop
+postdelay1:     ldm 15-10               ; 10 times through the inner loop
+                xch R12                 ; counter for the inner loop
+postdelay2:     fim P7,07DH
+postdelay3:     isz R14,postdelay3       ; inner loop 1 millisecond delay
+                isz R15,postdelay3       ;
+                isz R12,postdelay2       ; inner loop executed 10 times (10 milliseconds)
+                isz R13,postdelay1       ; outer loop executed 10 times (100 milliseconds)
+                bbl 0
+
+;--------------------------------------------------------------------------------------------------
+; check to see if someone is holding down a key for auto-boot to a specific bank
+;--------------------------------------------------------------------------------------------------
+
+check_auto:     jms fp_getkey           ; Is the FP attached, and is someone holding down a key?
+                jcn cn, nobootkey       ; ... nope.
+                ldm 0BH                 ; is it "B" ?
+                clc
+                sub r1
+                jcn zn, bootkey0
+                jun gobank1
+bootkey0:       ldm 0CH
+                clc
+                sub r1
+                jcn zn, bootkey1
+                jun gobank2
+bootkey1:       ldm 0DH
+                clc
+                sub r1
+                jcn zn, nobootkey
+                jun gobank3
+nobootkey:      bbl 0                 
+
+;-----------------------------------------------------------------------------------------
+; fp_getkey:
+;
+; check the front panel for a keypress
+; if key pressed, return with it in R1, and carry set
+;-----------------------------------------------------------------------------------------
+
+                include "fp_getkey.inc"
 
 ;-------------------------------------------------------------------------------
 ; Decimal addition demo.
