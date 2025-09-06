@@ -11,10 +11,10 @@
 ; Keys are mapped as follows:
 ;
 ;    0 - 9 ... decimal digits
-;      A   ... divide
-;      B   ... multiply
-;      C   ... subtract
-;      D   ... plus
+;      A   ... plus
+;      B   ... minus
+;      C   ... times
+;      D   ... divide
 ;      E   ... equal
 ;      F   ... clear
 ;
@@ -32,10 +32,10 @@
 
                 include "const.inc"
 
-KEY_DIV         equ 0AH
-KEY_TIMES       equ 0BH
-KEY_MINUS       equ 0CH
-KEY_PLUS        equ 0DH
+KEY_PLUS        equ 0AH
+KEY_MINUS       equ 0BH
+KEY_TIMES       equ 0CH
+KEY_DIV         equ 0DH
 KEY_EQUAL       equ 0EH
 KEY_CLEAR       equ 0FH
 

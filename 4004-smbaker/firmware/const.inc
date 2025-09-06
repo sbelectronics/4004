@@ -59,12 +59,21 @@ calcResults     equ CHIP0REG3           ; tic-tac-toe game
 ; Scott's front panel
 
 FP_D01          equ 000H
-FP_D23          equ 008H
-FP_D45          equ 010H
-FP_D67          equ 018H
-FP_D89          equ 020H
-FP_DP           equ 028H
-FP_LATB0        equ 030H
-FP_LATDB1       equ 038H
+FP_D23          equ 001H
+FP_D45          equ 002H
+FP_D67          equ 003H
+FP_D89          equ 004H
+FP_DP           equ 005H
+FP_LATB0        equ 006H
+FP_LATDB1       equ 007H
+
+;FP_D01          equ 000H
+;FP_D23          equ 008H
+;FP_D45          equ 010H
+;FP_D67          equ 018H
+;FP_D89          equ 020H
+;FP_DP           equ 028H
+;FP_LATB0        equ 030H
+;FP_LATDB1       equ 038H
 
 FP_KBD          equ 020H
