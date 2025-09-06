@@ -77,7 +77,9 @@ pgmstart:
                 org 0100H
 
 bankstart:
-reset:          ldm CMRAM3
+reset:          jms post
+
+                ldm CMRAM3
                 dcl                     ; select RAM3
                 fim P0,GPIO             ; address of the 4265 GPIO device
                 src P0
@@ -87,10 +89,13 @@ reset:          ldm CMRAM3
                 dcl                     ; back to RAM0
 
                 jms serinit
-                jms halfsecond          ; 500 millisecond delay
-                
+
+                ifdef SERBB
+                jms halfsecond          ; 500 millisecond delay. SMBAKER: why? some delay for bit-bang serial?
+                endif
+
                 jms newline
-                jms banner              ; print "Intel 4004 SBC" or "Intel 4040 SBC"
+                jms banner              ; print "Intel 4004 SBC" or "Intel 4040 SBC"        
 reset2:         jms ledsoff             ; all LEDs off
 reset3:         jms menu                ; print the menu
 reset4:         jms getchar             ; wait for a character from serial input, the character is returned in P1
@@ -214,6 +219,44 @@ state2:         ldm 0                   ; state=2, the 2nd ESCAPE has been recei
                 jun reset2              ; display the menu options, go back for the next character
 
 ;--------------------------------------------------------------------------------------------------
+; Compare the contents of P1 (R2,R3) with the contents of P2 (R4,R5).
+; Returns 0 if P1 = P2.
+; Returns 1 if P1 < P2.
+; Returns 2 if P1 > P2.
+; Overwrites the contents of P2.
+; Adapted from code in the "MCS-4 Micro Computer Set Users Manual" on page 166:
+;--------------------------------------------------------------------------------------------------
+compare:        xch R4                  ; contents of R7 (high nibble of P3) into accumulator
+                clc                     ; clear carry in preparation for 'subtract with borrow' instruction                
+                sub R2                  ; compare the high nibble of P1 (R2) to the high nibble of P3 (R6) by subtraction
+                jcn cn,greater          ; no carry means that R2 > R6
+                jcn zn,lesser           ; jump if the accumulator is not zero (low nibbles not equal)
+                clc                     ; clear carry in preparation for 'subtract with borrow' instruction
+                xch R5                  ; contents of R6 (low nibble of P3) into accumulator
+                sub R3                  ; compare the low nibble of P1 (R3) to the low nibble of P3 (R7) by subtraction
+                jcn cn,greater          ; no carry means R3 > R7
+                jcn zn,lesser           ; jump if the accumulator is not zero (high nibbles not equal)
+                bbl 0                   ; 0 indicates P1=P3
+lesser:         bbl 1                   ; 1 indicates P1<P3
+greater:        bbl 2                   ; 2 indicates P1>P3
+
+;--------------------------------------------------------------------------------------------------
+; postdelay is like leddelay but without the serial port check
+; ... and I made it shorter, too
+;--------------------------------------------------------------------------------------------------
+
+postdelay:      ldm 15-5                ; 5 times through the outer loop
+                xch R13                 ; counter for the outer loop
+postdelay1:     ldm 15-10               ; 10 times through the inner loop
+                xch R12                 ; counter for the inner loop
+postdelay2:     fim P7,07DH
+postdelay3:     isz R14,postdelay3       ; inner loop 1 millisecond delay
+                isz R15,postdelay3       ;
+                isz R12,postdelay2       ; inner loop executed 10 times (10 milliseconds)
+                isz R13,postdelay1       ; outer loop executed 10 times (100 milliseconds)
+                bbl 0      
+
+;--------------------------------------------------------------------------------------------------
 ; detects 4004 or 4040 CPU by using the "AN7" instruction.
 ; available on the 4040 but not on the 4004.
 ; returns 1 for 4004 CPU. returns 0 for 4040 CPU.
@@ -237,28 +280,6 @@ ledsoff:        fim P0,LEDPORT
                 wmp                     ; write data to RAM LED output port, set all 4 outputs low to turn off all four LEDs
                 bbl 0
 
-;--------------------------------------------------------------------------------------------------
-; Compare the contents of P1 (R2,R3) with the contents of P2 (R4,R5).
-; Returns 0 if P1 = P2.
-; Returns 1 if P1 < P2.
-; Returns 2 if P1 > P2.
-; Overwrites the contents of P2.
-; Adapted from code in the "MCS-4 Micro Computer Set Users Manual" on page 166:
-;--------------------------------------------------------------------------------------------------
-compare:        xch R4                  ; contents of R7 (high nibble of P3) into accumulator
-                clc                     ; clear carry in preparation for 'subtract with borrow' instruction                
-                sub R2                  ; compare the high nibble of P1 (R2) to the high nibble of P3 (R6) by subtraction
-                jcn cn,greater          ; no carry means that R2 > R6
-                jcn zn,lesser           ; jump if the accumulator is not zero (low nibbles not equal)
-                clc                     ; clear carry in preparation for 'subtract with borrow' instruction
-                xch R5                  ; contents of R6 (low nibble of P3) into accumulator
-                sub R3                  ; compare the low nibble of P1 (R3) to the low nibble of P3 (R7) by subtraction
-                jcn cn,greater          ; no carry means R3 > R7
-                jcn zn,lesser           ; jump if the accumulator is not zero (high nibbles not equal)
-                bbl 0                   ; 0 indicates P1=P3
-lesser:         bbl 1                   ; 1 indicates P1<P3
-greater:        bbl 2                   ; 2 indicates P1>P3
-
 ;-----------------------------------------------------------------------------------------
 ; position the cursor to the start of the next line
 ;-----------------------------------------------------------------------------------------
@@ -267,86 +288,31 @@ newline:        fim P1,CR
                 fim P1,LF
                 jun putchar
 
-;-------------------------------------------------------------------------------
-; this is the function that performs the multi-digit decimal subtraction
-; for the subtraction demo below
-;-------------------------------------------------------------------------------
-subtract:       ldm 0
-                xch R11                 ; R11 is the loop counter (0 gives 16 times thru the loop for 16 digits)
-                stc                     ; set carry=1
-subtract1:      tcs                     ; accumulator = 9 or 10
-                src P2                  ; select the subtrahend
-                sbm                     ; produce 9's or l0's complement
-                clc                     ; clear carry in preparation for 'add with carry' instruction
-                src P1                  ; select the minuend
-                adm                     ; add minuend to accumulator
-                daa                     ; adjust accumulator
-                wrm                     ; write result to replace minuend
-                inc R3                  ; address next digit of minuend
-                inc R5                  ; address next digit of subtrahend
-                isz R11,subtract1       ; loop back for all 16 digits
-                jcn c,subtract2         ; carry set means no underflow from the 16th digit
-                bbl 1                   ; overflow, the difference is negative
-subtract2:      bbl 0                   ; no overflow, the difference is positive
-
                 org 0200H               ; next page
-;-------------------------------------------------------------------------------
-; Decimal subtraction demo.
-; P1 points to the minuend stored in RAM register 10H least significant digit at 10H,
-; most significant digit at 1FH.
-; P2 points to the subtrahend is stored in RAM register 20H least significant digit at 20H,
-; most significant digit at 2FH.
-; the subtrahend is subtracted from the minuend. The difference replaces the minuend i.e. *P1=*P1-*P2
-; Adapted from code in "MCS-4 Micro Computer Set Users Manual, Feb. 73" page 4-23.
-;--------------------------------------------------------------------------------
-subdemo:        jms subinstr
-subdemo1:       fim P2,minuend          ; P2 points the memory register where the minuend digits are stored (10H-1FH)
-                jms clrram              ; clear RAM 10H-1FH
-                fim P2,subtrahend       ; P2 points the memory register where the subtrahend digits are stored (20H-2FH)
-                jms clrram              ; clear RAM 20H-1FH
-                jms newline             ; position carriage to beginning of next line
-                jms newline             ; blank line
-                jms firstnum            ; prompt for the first number (minuend)
-                fim P2,minuend          ; destination address for minuend: 1FH down to 10H
-                ldm 0                   ; up to 16 digits
-                xch R13                 ; R13 is the digit counter
-                jms getnumber           ; get the first number (minuend)
-                jcn z,subdemo1a
-                jun reset2              ; control C exits
 
-subdemo1a:      jms newline
-                jms secondnum           ; prompt for the second number (subtrahend)
-                fim P2,subtrahend       ; destination address for subtrahend: 2FH down to 20H
-                ldm 0                   ; up to 16 digits
-                xch R13                 ; R13 is the digit counter
-                jms getnumber           ; get the second number (subtrahend)
-                jcn z,subdemo1b
-                jun reset2              ; control C exits
+;--------------------------------------------------------------------------------------------------
+; post displays bits on the LED to let us know we're alive
+; TODO: actually test something...
+; NOTE: Ensure post is in the first 1KB, just in case the pagemapper failed
+;--------------------------------------------------------------------------------------------------
 
-subdemo1b:      jms newline
-                jms prndiff             ; print "Difference:"
-                fim P1,minuend          ; P1 points to the 16 digit minuend  (number from which another is to be subtracted)
-                fim P2,subtrahend       ; P2 points to the 16 digit subtrahend (number to be subtracted from another)
-                jms subtract            ; subtract subtrahend from minuend
-                jcn z,subdemo3          ; zero means no overflow, the difference is a positive number
-
-; the difference is a negative number
-; convert from 10's complement...
-                fim P2,subtrahend
-                jms clrram              ; zero RAM 20H-2FH
-                fim P1,subtrahend       ; P1 points to the 16 digit minuend  (all zeros)
-                fim P2,minuend          ; P2 points to the 16 digit subtrahend (the negative result from subtraction above)
-                jms subtract            ; subtract the negative number from zero
-                fim P1,'-'              ; minus sign
-                fim P3,subtrahend       ; the result is in RAM at 20H-2FH
-                jun subdemo4            ; go print the converted result
-
-; the difference is a positive number
-subdemo3:       fim P3,minuend          ; P3 points to the result in RAM at 10H-1FH
-                fim P1,' '              ; space
-subdemo4:       jms putchar             ; print a space
-                jms prndigits           ; print the 16 digits of the difference
-                jun subdemo1            ; go back for another pair of numbers
+post:           fim P0,LEDPORT
+                src P0
+                ldm 0001B
+                wmp
+                jms postdelay
+                ldm 0010B
+                wmp
+                jms postdelay
+                ldm 0100B
+                wmp
+                jms postdelay
+                ldm 1000B
+                wmp
+                jms postdelay
+                ldm 0000B
+                wmp
+                bbl 0
 
 ;-------------------------------------------------------------------------------
 ; Decimal addition demo.
@@ -2022,8 +1988,88 @@ squarestxt:     data    CR,LF,LF,"TIC-TAC-TOE",CR,LF,LF
                 data    "4 5 6",CR,LF
                 data    "7 8 9",CR,LF,0
 
-                org 0F00H               ;next page
+                org 0F00H               ;next page       
 
                 include "toupper.inc"
+
+;-------------------------------------------------------------------------------
+; this is the function that performs the multi-digit decimal subtraction
+; for the subtraction demo below
+;-------------------------------------------------------------------------------
+subtract:       ldm 0
+                xch R11                 ; R11 is the loop counter (0 gives 16 times thru the loop for 16 digits)
+                stc                     ; set carry=1
+subtract1:      tcs                     ; accumulator = 9 or 10
+                src P2                  ; select the subtrahend
+                sbm                     ; produce 9's or l0's complement
+                clc                     ; clear carry in preparation for 'add with carry' instruction
+                src P1                  ; select the minuend
+                adm                     ; add minuend to accumulator
+                daa                     ; adjust accumulator
+                wrm                     ; write result to replace minuend
+                inc R3                  ; address next digit of minuend
+                inc R5                  ; address next digit of subtrahend
+                isz R11,subtract1       ; loop back for all 16 digits
+                jcn c,subtract2         ; carry set means no underflow from the 16th digit
+                bbl 1                   ; overflow, the difference is negative
+subtract2:      bbl 0                   ; no overflow, the difference is positive
+
+;-------------------------------------------------------------------------------
+; Decimal subtraction demo.
+; P1 points to the minuend stored in RAM register 10H least significant digit at 10H,
+; most significant digit at 1FH.
+; P2 points to the subtrahend is stored in RAM register 20H least significant digit at 20H,
+; most significant digit at 2FH.
+; the subtrahend is subtracted from the minuend. The difference replaces the minuend i.e. *P1=*P1-*P2
+; Adapted from code in "MCS-4 Micro Computer Set Users Manual, Feb. 73" page 4-23.
+;--------------------------------------------------------------------------------
+subdemo:        jms subinstr
+subdemo1:       fim P2,minuend          ; P2 points the memory register where the minuend digits are stored (10H-1FH)
+                jms clrram              ; clear RAM 10H-1FH
+                fim P2,subtrahend       ; P2 points the memory register where the subtrahend digits are stored (20H-2FH)
+                jms clrram              ; clear RAM 20H-1FH
+                jms newline             ; position carriage to beginning of next line
+                jms newline             ; blank line
+                jms firstnum            ; prompt for the first number (minuend)
+                fim P2,minuend          ; destination address for minuend: 1FH down to 10H
+                ldm 0                   ; up to 16 digits
+                xch R13                 ; R13 is the digit counter
+                jms getnumber           ; get the first number (minuend)
+                jcn z,subdemo1a
+                jun reset2              ; control C exits
+
+subdemo1a:      jms newline
+                jms secondnum           ; prompt for the second number (subtrahend)
+                fim P2,subtrahend       ; destination address for subtrahend: 2FH down to 20H
+                ldm 0                   ; up to 16 digits
+                xch R13                 ; R13 is the digit counter
+                jms getnumber           ; get the second number (subtrahend)
+                jcn z,subdemo1b
+                jun reset2              ; control C exits
+
+subdemo1b:      jms newline
+                jms prndiff             ; print "Difference:"
+                fim P1,minuend          ; P1 points to the 16 digit minuend  (number from which another is to be subtracted)
+                fim P2,subtrahend       ; P2 points to the 16 digit subtrahend (number to be subtracted from another)
+                jms subtract            ; subtract subtrahend from minuend
+                jcn z,subdemo3          ; zero means no overflow, the difference is a positive number
+
+; the difference is a negative number
+; convert from 10's complement...
+                fim P2,subtrahend
+                jms clrram              ; zero RAM 20H-2FH
+                fim P1,subtrahend       ; P1 points to the 16 digit minuend  (all zeros)
+                fim P2,minuend          ; P2 points to the 16 digit subtrahend (the negative result from subtraction above)
+                jms subtract            ; subtract the negative number from zero
+                fim P1,'-'              ; minus sign
+                fim P3,subtrahend       ; the result is in RAM at 20H-2FH
+                jun subdemo4            ; go print the converted result
+
+; the difference is a positive number
+subdemo3:       fim P3,minuend          ; P3 points to the result in RAM at 10H-1FH
+                fim P1,' '              ; space
+subdemo4:       jms putchar             ; print a space
+                jms prndigits           ; print the 16 digits of the difference
+                jun subdemo1            ; go back for another pair of numbers
 
                 end
